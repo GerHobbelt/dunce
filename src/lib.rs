@@ -15,6 +15,8 @@
 //! unconditionally for all platforms.
 //!
 //! Parsing is based on https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247(v=vs.85).aspx
+#![doc(html_logo_url = "https://assets.gitlab-static.net/uploads/-/system/project/avatar/4717715/dyc.png")]
+
 
 #![allow(unused)]
 use std::ascii::AsciiExt;
