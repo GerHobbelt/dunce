@@ -3,10 +3,13 @@ authors = ["Kornel <kornel@geekhood.net>"]
 categories = ["filesystem"]
 description = "Normalize Windows paths to the most compatible format, avoiding UNC where possible"
 documentation = "https://docs.rs/dunce"
-homepage = "https://gitlab.com/kornelski/dunce#readme"
+homepage = "https://crates.rs/crates/dunce"
 keywords = ["realpath", "unc", "canonicalize", "windows", "deunc"]
 license = "CC0-1.0"
 name = "dunce"
 readme = "README.md"
 repository = "https://gitlab.com/kornelski/dunce"
 version = "0.1.1"
+
+[badges]
+gitlab = { repository = "kornelski/dunce" }
