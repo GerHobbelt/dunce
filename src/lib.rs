@@ -15,13 +15,13 @@
 //! unconditionally for all platforms.
 //!
 //! Parsing is based on https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247(v=vs.85).aspx
+//!
+//! [Project homepage](https://crates.rs/crates/dunce).
 #![doc(html_logo_url = "https://assets.gitlab-static.net/uploads/-/system/project/avatar/4717715/dyc.png")]
 
-
-#![allow(unused)]
-use std::ascii::AsciiExt;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
+#[cfg(any(windows,test))]
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf, Component, Prefix};
 use std::io;
@@ -74,6 +74,7 @@ pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
 
 pub use self::canonicalize as realpath;
 
+#[cfg(any(windows,test))]
 fn windows_char_len(s: &OsStr) -> usize {
     #[cfg(unix)]
     let len = s.to_string_lossy().chars().map(|c| if c as u32 <= 0xFFFF {1} else {2}).sum();
@@ -82,6 +83,7 @@ fn windows_char_len(s: &OsStr) -> usize {
     len
 }
 
+#[cfg(any(windows,test))]
 fn is_valid_filename<P: AsRef<OsStr>>(file_name: P) -> bool {
     let file_name = file_name.as_ref();
     if windows_char_len(file_name) > 255 {
@@ -116,10 +118,12 @@ fn is_valid_filename<P: AsRef<OsStr>>(file_name: P) -> bool {
     true
 }
 
+#[cfg(any(windows,test))]
 const RESERVED_NAMES: [&'static str; 22] = ["AUX", "NUL", "PRN", "CON",
                     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
                     "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
 
+#[cfg(any(windows,test))]
 fn is_reserved<P: AsRef<OsStr>>(file_name: P) -> bool {
     // con.txt is reserved too
     if let Some(stem) = Path::new(&file_name).file_stem() {
@@ -140,7 +144,7 @@ fn is_reserved<P: AsRef<OsStr>>(file_name: P) -> bool {
 }
 
 #[cfg(not(windows))]
-fn is_safe_to_strip_unc(path: &Path) -> bool {
+fn is_safe_to_strip_unc(_path: &Path) -> bool {
     false
 }
 
@@ -179,6 +183,7 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
 }
 
 /// Trim '.' and ' '
+#[cfg(any(windows,test))]
 fn right_trim(mut s: &str) -> &str {
     while s.len() > 0 {
         let last = s.len()-1;
