@@ -10,6 +10,7 @@ name = "dunce"
 readme = "README.md"
 repository = "https://gitlab.com/kornelski/dunce"
 version = "1.0.0"
+edition = "2018"
 
 [badges]
 gitlab = { repository = "kornelski/dunce" }

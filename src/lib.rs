@@ -19,13 +19,15 @@
 //! [Project homepage](https://crates.rs/crates/dunce).
 #![doc(html_logo_url = "https://assets.gitlab-static.net/uploads/-/system/project/avatar/4717715/dyc.png")]
 
+#[cfg(any(windows, test))]
+use std::ffi::OsStr;
+use std::fs;
+use std::io;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
-#[cfg(any(windows,test))]
-use std::ffi::OsStr;
-use std::path::{Path, PathBuf, Component, Prefix};
-use std::io;
-use std::fs;
+#[cfg(windows)]
+use std::path::{Component, Prefix};
+use std::path::{Path, PathBuf};
 
 /// Takes any path, and when possible, converts Windows UNC paths to regular paths.
 ///
@@ -103,7 +105,7 @@ fn is_valid_filename<P: AsRef<OsStr>>(file_name: P) -> bool {
     let byte_str = file_name.as_bytes();
     for &c in byte_str {
         match c {
-            0...31 |
+            0..=31 |
             b'<' | b'>' | b':' | b'"' |
             b'/' | b'\\' | b'|' | b'?' | b'*' => return false,
             _ => {},
@@ -118,12 +120,13 @@ fn is_valid_filename<P: AsRef<OsStr>>(file_name: P) -> bool {
     true
 }
 
-#[cfg(any(windows,test))]
-const RESERVED_NAMES: [&'static str; 22] = ["AUX", "NUL", "PRN", "CON",
-                    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-                    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+#[cfg(any(windows, test))]
+const RESERVED_NAMES: [&'static str; 22] = [
+    "AUX", "NUL", "PRN", "CON", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
 
-#[cfg(any(windows,test))]
+#[cfg(any(windows, test))]
 fn is_reserved<P: AsRef<OsStr>>(file_name: P) -> bool {
     // con.txt is reserved too
     if let Some(stem) = Path::new(&file_name).file_stem() {
@@ -150,13 +153,10 @@ fn is_safe_to_strip_unc(_path: &Path) -> bool {
 
 #[cfg(windows)]
 fn is_safe_to_strip_unc(path: &Path) -> bool {
-    use Prefix::*;
-    use Component::*;
-
     let mut components = path.components();
     match components.next() {
         Some(Component::Prefix(p)) => match p.kind() {
-            VerbatimDisk(..) => {},
+            Prefix::VerbatimDisk(..) => {},
             _ => return false, // Other kinds of UNC paths
         },
         _ => return false, // relative or empty
@@ -164,15 +164,15 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
 
     for component in components {
         match component {
-            RootDir => {},
-            Normal(file_name) => {
+            Component::RootDir => {},
+            Component::Normal(file_name) => {
                 // it doesn't allocate in most cases,
                 // and checks are interested only in the ASCII subset, so lossy is fine
                 if !is_valid_filename(file_name) || is_reserved(file_name) {
                     return false;
                 }
             }
-            _ => return false,  // UNC paths take things like ".." literally
+            _ => return false, // UNC paths take things like ".." literally
         };
     }
 
@@ -183,7 +183,7 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
 }
 
 /// Trim '.' and ' '
-#[cfg(any(windows,test))]
+#[cfg(any(windows, test))]
 fn right_trim(mut s: &str) -> &str {
     while s.len() > 0 {
         let last = s.len()-1;
