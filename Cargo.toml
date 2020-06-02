@@ -9,7 +9,7 @@ license = "CC0-1.0"
 name = "dunce"
 readme = "README.md"
 repository = "https://gitlab.com/kornelski/dunce"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2018"
 
 [badges]
