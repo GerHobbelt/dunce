@@ -3,7 +3,7 @@ authors = ["Kornel <kornel@geekhood.net>"]
 categories = ["filesystem"]
 description = "Normalize Windows paths to the most compatible format, avoiding UNC where possible"
 documentation = "https://docs.rs/dunce"
-homepage = "https://crates.rs/crates/dunce"
+homepage = "https://lib.rs/crates/dunce"
 keywords = ["realpath", "unc", "canonicalize", "windows", "deunc"]
 license = "CC0-1.0"
 name = "dunce"
@@ -16,3 +16,5 @@ edition = "2018"
 gitlab = { repository = "kornelski/dunce" }
 appveyor = { repository = "pornel/dunce" }
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
