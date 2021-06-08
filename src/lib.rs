@@ -45,6 +45,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Currently paths with unpaired surrogates aren't converted even if they
 /// can be due to limitations of Rust's `OsStr` API.
+#[inline]
 pub fn simplified(path: &Path) -> &Path {
     if is_safe_to_strip_unc(path) {
         // unfortunately we can't safely strip prefix from a non-Unicode path
@@ -56,8 +57,22 @@ pub fn simplified(path: &Path) -> &Path {
 
 /// Like `std::fs::canonicalize()`, but on Windows it outputs the most
 /// compatible form of a path instead of UNC.
-#[cfg(windows)]
+#[inline(always)]
 pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
+    let path = path.as_ref();
+
+    #[cfg(not(windows))]
+    {
+        fs::canonicalize(path)
+    }
+    #[cfg(windows)]
+    {
+        canonicalize_win(path)
+    }
+}
+
+#[cfg(windows)]
+fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
     let real_path = fs::canonicalize(path)?;
     Ok(if is_safe_to_strip_unc(&real_path) {
         real_path.to_str().and_then(|s| s.get(4..)).map(PathBuf::from).unwrap_or(real_path)
@@ -66,19 +81,11 @@ pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
     })
 }
 
-/// Like `std::fs::canonicalize()`, but on Windows it outputs the most
-/// compatible form of a path instead of UNC.
-#[cfg(not(windows))]
-#[inline]
-pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
-    fs::canonicalize(path)
-}
-
 pub use self::canonicalize as realpath;
 
 #[cfg(any(windows,test))]
 fn windows_char_len(s: &OsStr) -> usize {
-    #[cfg(unix)]
+    #[cfg(not(windows))]
     let len = s.to_string_lossy().chars().map(|c| if c as u32 <= 0xFFFF {1} else {2}).sum();
     #[cfg(windows)]
     let len = s.encode_wide().count();
@@ -86,7 +93,7 @@ fn windows_char_len(s: &OsStr) -> usize {
 }
 
 #[cfg(any(windows,test))]
-fn is_valid_filename<P: AsRef<OsStr>>(file_name: P) -> bool {
+fn is_valid_filename(file_name: &OsStr) -> bool {
     let file_name = file_name.as_ref();
     if windows_char_len(file_name) > 255 {
         return false;
@@ -147,6 +154,7 @@ fn is_reserved<P: AsRef<OsStr>>(file_name: P) -> bool {
 }
 
 #[cfg(not(windows))]
+#[inline]
 fn is_safe_to_strip_unc(_path: &Path) -> bool {
     false
 }
@@ -251,31 +259,31 @@ fn len() {
 
 #[test]
 fn valid() {
-    assert!(!is_valid_filename(".."));
-    assert!(!is_valid_filename("."));
-    assert!(!is_valid_filename("aaaaaaaaaa:"));
-    assert!(!is_valid_filename("ą:ą"));
-    assert!(!is_valid_filename(""));
-    assert!(!is_valid_filename("a "));
-    assert!(!is_valid_filename(" a. "));
-    assert!(!is_valid_filename("a/"));
-    assert!(!is_valid_filename("/a"));
-    assert!(!is_valid_filename("/"));
-    assert!(!is_valid_filename("\\"));
-    assert!(!is_valid_filename("\\a"));
-    assert!(!is_valid_filename("<x>"));
-    assert!(!is_valid_filename("a*"));
-    assert!(!is_valid_filename("?x"));
-    assert!(!is_valid_filename("a\0a"));
-    assert!(!is_valid_filename("\x1f"));
-    assert!(!is_valid_filename(::std::iter::repeat("a").take(257).collect::<String>()));
+    assert!(!is_valid_filename("..".as_ref()));
+    assert!(!is_valid_filename(".".as_ref()));
+    assert!(!is_valid_filename("aaaaaaaaaa:".as_ref()));
+    assert!(!is_valid_filename("ą:ą".as_ref()));
+    assert!(!is_valid_filename("".as_ref()));
+    assert!(!is_valid_filename("a ".as_ref()));
+    assert!(!is_valid_filename(" a. ".as_ref()));
+    assert!(!is_valid_filename("a/".as_ref()));
+    assert!(!is_valid_filename("/a".as_ref()));
+    assert!(!is_valid_filename("/".as_ref()));
+    assert!(!is_valid_filename("\\".as_ref()));
+    assert!(!is_valid_filename("\\a".as_ref()));
+    assert!(!is_valid_filename("<x>".as_ref()));
+    assert!(!is_valid_filename("a*".as_ref()));
+    assert!(!is_valid_filename("?x".as_ref()));
+    assert!(!is_valid_filename("a\0a".as_ref()));
+    assert!(!is_valid_filename("\x1f".as_ref()));
+    assert!(!is_valid_filename(::std::iter::repeat("a").take(257).collect::<String>().as_ref()));
 
-    assert!(is_valid_filename(::std::iter::repeat("®").take(254).collect::<String>()));
-    assert!(is_valid_filename("ファイル"));
-    assert!(is_valid_filename("a"));
-    assert!(is_valid_filename("a.aaaaaaaa"));
-    assert!(is_valid_filename("a........a"));
-    assert!(is_valid_filename("       b"));
+    assert!(is_valid_filename(::std::iter::repeat("®").take(254).collect::<String>().as_ref()));
+    assert!(is_valid_filename("ファイル".as_ref()));
+    assert!(is_valid_filename("a".as_ref()));
+    assert!(is_valid_filename("a.aaaaaaaa".as_ref()));
+    assert!(is_valid_filename("a........a".as_ref()));
+    assert!(is_valid_filename("       b".as_ref()));
 }
 
 #[test]
