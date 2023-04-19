@@ -9,8 +9,8 @@ license = "CC0-1.0 OR MIT-0 OR Apache-2.0"
 name = "dunce"
 readme = "README.md"
 repository = "https://gitlab.com/kornelski/dunce"
-version = "1.0.3"
-edition = "2018"
+version = "1.0.4"
+edition = "2021"
 
 [badges]
 gitlab = { repository = "kornelski/dunce" }
