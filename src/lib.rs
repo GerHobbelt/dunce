@@ -17,7 +17,9 @@
 //! Parsing is based on https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247(v=vs.85).aspx
 //!
 //! [Project homepage](https://crates.rs/crates/dunce).
-#![doc(html_logo_url = "https://assets.gitlab-static.net/uploads/-/system/project/avatar/4717715/dyc.png")]
+#![doc(
+    html_logo_url = "https://assets.gitlab-static.net/uploads/-/system/project/avatar/4717715/dyc.png"
+)]
 
 #[cfg(any(windows, test))]
 use std::ffi::OsStr;
@@ -49,7 +51,10 @@ use std::path::{Path, PathBuf};
 pub fn simplified(path: &Path) -> &Path {
     if is_safe_to_strip_unc(path) {
         // unfortunately we can't safely strip prefix from a non-Unicode path
-        path.to_str().and_then(|s| s.get(4..)).map(Path::new).unwrap_or(path)
+        path.to_str()
+            .and_then(|s| s.get(4..))
+            .map(Path::new)
+            .unwrap_or(path)
     } else {
         path
     }
@@ -73,9 +78,51 @@ pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
 
 #[cfg(windows)]
 fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
+    eprintln!("canonicalize_win({:?})", path);
+    let reserved = is_reserved(path);
+    let exact_reserve = RESERVED_NAMES.contains(&path.to_str().unwrap_or_default());
+    // eprintln!("reserved: {}, exact: {}", reserved, exact_reserve);
+    if reserved && !exact_reserve {
+        let p = path.parent();
+        let f = path.file_name();
+        eprintln!("p: {:?}, f: {:?}", p, f);
+        let parent = path
+            .parent()
+            .ok_or_else(|| {
+                return Err::<&Path, std::io::Error>(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Invalid path",
+                ));
+            })
+            .unwrap();
+        let file = path
+            .file_name()
+            .ok_or_else(|| {
+                return Err::<&Path, std::io::Error>(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Invalid path",
+                ));
+            })
+            .unwrap();
+        let ret_path = format!(
+            "\\\\?\\{0}\\{1}",
+            canonicalize_win(match parent.to_str() {
+                Some("") => Path::new("."),
+                _ => parent,
+            })?
+            .display(),
+            file.to_string_lossy()
+        );
+        eprintln!("ret_path: {:?}", ret_path);
+        return Ok(ret_path.into());
+    }
     let real_path = fs::canonicalize(path)?;
     Ok(if is_safe_to_strip_unc(&real_path) {
-        real_path.to_str().and_then(|s| s.get(4..)).map(PathBuf::from).unwrap_or(real_path)
+        real_path
+            .to_str()
+            .and_then(|s| s.get(4..))
+            .map(PathBuf::from)
+            .unwrap_or(real_path)
     } else {
         real_path
     })
@@ -83,16 +130,20 @@ fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
 
 pub use self::canonicalize as realpath;
 
-#[cfg(any(windows,test))]
+#[cfg(any(windows, test))]
 fn windows_char_len(s: &OsStr) -> usize {
     #[cfg(not(windows))]
-    let len = s.to_string_lossy().chars().map(|c| if c as u32 <= 0xFFFF {1} else {2}).sum();
+    let len = s
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c as u32 <= 0xFFFF { 1 } else { 2 })
+        .sum();
     #[cfg(windows)]
     let len = s.encode_wide().count();
     len
 }
 
-#[cfg(any(windows,test))]
+#[cfg(any(windows, test))]
 fn is_valid_filename(file_name: &OsStr) -> bool {
     let file_name = file_name.as_ref();
     if windows_char_len(file_name) > 255 {
@@ -112,15 +163,13 @@ fn is_valid_filename(file_name: &OsStr) -> bool {
     let byte_str = file_name.as_bytes();
     for &c in byte_str {
         match c {
-            0..=31 |
-            b'<' | b'>' | b':' | b'"' |
-            b'/' | b'\\' | b'|' | b'?' | b'*' => return false,
-            _ => {},
+            0..=31 | b'<' | b'>' | b':' | b'"' | b'/' | b'\\' | b'|' | b'?' | b'*' => return false,
+            _ => {}
         }
     }
 
     // Filename can't end with . or space (except before extension, but this checks the whole name)
-    let last_char = byte_str[byte_str.len()-1];
+    let last_char = byte_str[byte_str.len() - 1];
     if last_char == b' ' || last_char == b'.' {
         return false;
     }
@@ -161,10 +210,11 @@ fn is_safe_to_strip_unc(_path: &Path) -> bool {
 
 #[cfg(windows)]
 fn is_safe_to_strip_unc(path: &Path) -> bool {
+    eprintln!("is_safe_to_strip_unc({:?})", path);
     let mut components = path.components();
     match components.next() {
         Some(Component::Prefix(p)) => match p.kind() {
-            Prefix::VerbatimDisk(..) => {},
+            Prefix::VerbatimDisk(..) => {}
             _ => return false, // Other kinds of UNC paths
         },
         _ => return false, // relative or empty
@@ -172,7 +222,7 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
 
     for component in components {
         match component {
-            Component::RootDir => {},
+            Component::RootDir => {}
             Component::Normal(file_name) => {
                 // it doesn't allocate in most cases,
                 // and checks are interested only in the ASCII subset, so lossy is fine
@@ -184,7 +234,8 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
         };
     }
 
-    if windows_char_len(path.as_os_str()) > 260 { // However, if the path is going to be used as a directory it's 248
+    if windows_char_len(path.as_os_str()) > 260 {
+        // However, if the path is going to be used as a directory it's 248
         return false;
     }
     true
@@ -194,7 +245,7 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
 #[cfg(any(windows, test))]
 fn right_trim(mut s: &str) -> &str {
     while s.len() > 0 {
-        let last = s.len()-1;
+        let last = s.len() - 1;
         unsafe {
             if s.as_bytes()[last] == b'.' || s.as_bytes()[last] == b' ' {
                 s = s.get_unchecked(0..last) // trim of ASCII byte can't break UTF-8
@@ -276,9 +327,19 @@ fn valid() {
     assert!(!is_valid_filename("?x".as_ref()));
     assert!(!is_valid_filename("a\0a".as_ref()));
     assert!(!is_valid_filename("\x1f".as_ref()));
-    assert!(!is_valid_filename(::std::iter::repeat("a").take(257).collect::<String>().as_ref()));
+    assert!(!is_valid_filename(
+        ::std::iter::repeat("a")
+            .take(257)
+            .collect::<String>()
+            .as_ref()
+    ));
 
-    assert!(is_valid_filename(::std::iter::repeat("®").take(254).collect::<String>().as_ref()));
+    assert!(is_valid_filename(
+        ::std::iter::repeat("®")
+            .take(254)
+            .collect::<String>()
+            .as_ref()
+    ));
     assert!(is_valid_filename("ファイル".as_ref()));
     assert!(is_valid_filename("a".as_ref()));
     assert!(is_valid_filename("a.aaaaaaaa".as_ref()));
@@ -289,17 +350,33 @@ fn valid() {
 #[test]
 #[cfg(windows)]
 fn realpath_test() {
-    assert_eq!(r"C:\WINDOWS", canonicalize(r"C:\Windows").unwrap().to_str().unwrap().to_uppercase());
+    assert_eq!(
+        r"C:\WINDOWS",
+        canonicalize(r"C:\Windows")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_uppercase()
+    );
     assert_ne!(r".", canonicalize(r".").unwrap().to_str().unwrap());
 }
 
 #[test]
 #[cfg(windows)]
 fn strip() {
-    assert_eq!(Path::new(r"C:\foo\😀"), simplified(Path::new(r"\\?\C:\foo\😀")));
+    assert_eq!(
+        Path::new(r"C:\foo\😀"),
+        simplified(Path::new(r"\\?\C:\foo\😀"))
+    );
     assert_eq!(Path::new(r"\\?\serv\"), simplified(Path::new(r"\\?\serv\")));
-    assert_eq!(Path::new(r"\\.\C:\notdisk"), simplified(Path::new(r"\\.\C:\notdisk")));
-    assert_eq!(Path::new(r"\\?\GLOBALROOT\Device\ImDisk0\path\to\file.txt"), simplified(Path::new(r"\\?\GLOBALROOT\Device\ImDisk0\path\to\file.txt")));
+    assert_eq!(
+        Path::new(r"\\.\C:\notdisk"),
+        simplified(Path::new(r"\\.\C:\notdisk"))
+    );
+    assert_eq!(
+        Path::new(r"\\?\GLOBALROOT\Device\ImDisk0\path\to\file.txt"),
+        simplified(Path::new(r"\\?\GLOBALROOT\Device\ImDisk0\path\to\file.txt"))
+    );
 }
 
 #[test]
@@ -311,8 +388,14 @@ fn safe() {
     assert!(is_safe_to_strip_unc(Path::new(r"\\?\c:\foo")));
 
     let long = ::std::iter::repeat("®").take(160).collect::<String>();
-    assert!(is_safe_to_strip_unc(Path::new(&format!(r"\\?\c:\{}", long))));
-    assert!(!is_safe_to_strip_unc(Path::new(&format!(r"\\?\c:\{}\{}", long, long))));
+    assert!(is_safe_to_strip_unc(Path::new(&format!(
+        r"\\?\c:\{}",
+        long
+    ))));
+    assert!(!is_safe_to_strip_unc(Path::new(&format!(
+        r"\\?\c:\{}\{}",
+        long, long
+    ))));
 
     assert!(!is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\.\bar")));
     assert!(!is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\..\bar")));
