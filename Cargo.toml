@@ -20,3 +20,6 @@ maintenance = { status = "passively-maintained" }
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
+[dev-dependencies]
+wild = "2.1.0"
+
