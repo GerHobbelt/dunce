@@ -21,6 +21,15 @@
     html_logo_url = "https://assets.gitlab-static.net/uploads/-/system/project/avatar/4717715/dyc.png"
 )]
 
+// ToDO: [2023-05-29; rivy] change `wild` to return any reserved-word file name with a single trailing '.'
+// ... then the code here will correctly create a UNC path for it, as needed
+// NOTES: `std::fs::absolute` is now available to help with logical/virtual path canonicalization/resolution.
+// ... if there are no '..' segments in a path, then absolute should always be correct
+// ... reference the double-dot problem article (<https://9p.io/sys/doc/lexnames.html> @@ <https://archive.is/vF9QF> , <https://archive.is/xtuYp>)
+// ... see further research from <https://workona.com/0/j4j2n9/paths-rust-unc-research>
+// development a hybrid canonicalization strategy that accesses the file system until the file doesn't exist then uses purely lexical/virtual reasoning
+// ? canonicalization is difficult if the current path is a symbolic link (must be resolved to a physical path), then each level must be resolved
+
 #[cfg(any(windows, test))]
 use std::ffi::OsStr;
 use std::fs;
