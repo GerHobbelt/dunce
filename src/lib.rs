@@ -30,12 +30,16 @@
 // development a hybrid canonicalization strategy that accesses the file system until the file doesn't exist then uses purely lexical/virtual reasoning
 // ? canonicalization is difficult if the current path is a symbolic link (must be resolved to a physical path), then each level must be resolved
 
-#[cfg(any(windows, test))]
+// #[cfg(any(windows, test))]
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
+use std::os::windows::ffi::OsStringExt;
 #[cfg(windows)]
 use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
@@ -85,46 +89,73 @@ pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
     }
 }
 
+// #[cfg(windows)]
+// fn remove_trailing_dots(input: &Path) -> &Path {
+//     let mut stripped = input;
+//     while let Some(new_stripped) = stripped.strip_suffix(b".") {
+//         stripped = new_stripped;
+//     }
+//     stripped
+// }
+
+pub fn strip_trailing_dots<P: AsRef<Path>>(path: P) -> std::ffi::OsString {
+    #[cfg(unix)]
+    {
+        let bytes = path.as_ref().as_os_str().as_bytes();
+        let new_bytes = bytes
+            .iter()
+            .rev()
+            .skip_while(|&&b| b == b'.')
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>();
+        OsStr::from_bytes(&new_bytes).to_os_string()
+    }
+
+    #[cfg(windows)]
+    {
+        let wide_chars = path.as_ref().as_os_str().encode_wide().collect::<Vec<_>>();
+        let new_wide_chars = wide_chars
+            .iter()
+            .rev()
+            .skip_while(|&&c| c == '.' as u16)
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>();
+        OsStringExt::from_wide(&new_wide_chars)
+    }
+}
+
 #[cfg(windows)]
 fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
-    eprintln!("canonicalize_win({:?})", path);
     let reserved = is_reserved(path);
     let exact_reserve = RESERVED_NAMES.contains(&path.to_str().unwrap_or_default());
-    // eprintln!("reserved: {}, exact: {}", reserved, exact_reserve);
+
     if reserved && !exact_reserve {
-        let p = path.parent();
-        let f = path.file_name();
-        eprintln!("p: {:?}, f: {:?}", p, f);
         let parent = path
             .parent()
-            .ok_or_else(|| {
-                return Err::<&Path, std::io::Error>(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Invalid path",
-                ));
-            })
-            .unwrap();
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid path"))?;
         let file = path
             .file_name()
-            .ok_or_else(|| {
-                return Err::<&Path, std::io::Error>(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "Invalid path",
-                ));
-            })
-            .unwrap();
-        let ret_path = format!(
-            "\\\\?\\{0}\\{1}",
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid path"))?;
+
+        let mut ret_path = PathBuf::from(format!(
+            "\\\\?\\{}",
             canonicalize_win(match parent.to_str() {
                 Some("") => Path::new("."),
                 _ => parent,
             })?
-            .display(),
-            file.to_string_lossy()
-        );
-        eprintln!("ret_path: {:?}", ret_path);
-        return Ok(ret_path.into());
+            .display()
+        ));
+        ret_path.push(strip_trailing_dots(file));
+
+        return Ok(ret_path);
     }
+
     let real_path = fs::canonicalize(path)?;
     Ok(if is_safe_to_strip_unc(&real_path) {
         real_path
@@ -136,7 +167,6 @@ fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
         real_path
     })
 }
-
 pub use self::canonicalize as realpath;
 
 #[cfg(any(windows, test))]
