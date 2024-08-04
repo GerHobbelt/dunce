@@ -192,18 +192,8 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
 
 /// Trim '.' and ' '
 #[cfg(any(windows, test))]
-fn right_trim(mut s: &str) -> &str {
-    while s.len() > 0 {
-        let last = s.len()-1;
-        unsafe {
-            if s.as_bytes()[last] == b'.' || s.as_bytes()[last] == b' ' {
-                s = s.get_unchecked(0..last) // trim of ASCII byte can't break UTF-8
-            } else {
-                break;
-            }
-        }
-    }
-    s
+fn right_trim(s: &str) -> &str {
+    s.trim_end_matches([' ','.'])
 }
 
 #[test]
