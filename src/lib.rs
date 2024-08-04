@@ -14,9 +14,9 @@
 //! On non-Windows platforms these functions leave paths unmodified, so it's safe to use them
 //! unconditionally for all platforms.
 //!
-//! Parsing is based on https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247(v=vs.85).aspx
+//! Parsing is based on <https://msdn.microsoft.com/en-us/library/windows/desktop/aa365247(v=vs.85).aspx>
 //!
-//! [Project homepage](https://crates.rs/crates/dunce).
+//! [Project homepage](https://lib.rs/crates/dunce).
 #![doc(html_logo_url = "https://assets.gitlab-static.net/uploads/-/system/project/avatar/4717715/dyc.png")]
 
 #[cfg(any(windows, test))]
@@ -30,6 +30,7 @@ use std::path::{Component, Prefix};
 use std::path::{Path, PathBuf};
 
 /// Takes any path, and when possible, converts Windows UNC paths to regular paths.
+/// If the path can't be converted, it's returned unmodified.
 ///
 /// On non-Windows this is no-op.
 ///
@@ -37,14 +38,17 @@ use std::path::{Path, PathBuf};
 /// but `\\?\C:\COM` will be left as-is (due to a reserved filename).
 ///
 /// Use this to pass arbitrary paths to programs that may not be UNC-aware.
+///
 /// It's generally safe to pass UNC paths to legacy programs, because
-/// the paths contain a reserved character, so will gracefully fail
-/// if used with wrong APIs.
+/// these paths contain a reserved prefix, so will gracefully fail
+/// if used with legacy APIs that don't support UNC.
 ///
 /// This function does not perform any I/O.
 ///
 /// Currently paths with unpaired surrogates aren't converted even if they
-/// can be due to limitations of Rust's `OsStr` API.
+/// could be, due to limitations of Rust's `OsStr` API.
+///
+/// To check if a path remained as UNC, use `path.as_os_str().as_encoded_bytes().starts_with(b"\\\\")`.
 #[inline]
 pub fn simplified(path: &Path) -> &Path {
     if is_safe_to_strip_unc(path) {
