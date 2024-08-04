@@ -94,8 +94,7 @@ fn windows_char_len(s: &OsStr) -> usize {
 
 #[cfg(any(windows,test))]
 fn is_valid_filename(file_name: &OsStr) -> bool {
-    let file_name = file_name.as_ref();
-    if windows_char_len(file_name) > 255 {
+    if file_name.len() > 255 && windows_char_len(file_name) > 255 {
         return false;
     }
 
@@ -184,7 +183,9 @@ fn is_safe_to_strip_unc(path: &Path) -> bool {
         };
     }
 
-    if windows_char_len(path.as_os_str()) > 260 { // However, if the path is going to be used as a directory it's 248
+    let path_os_str = path.as_os_str();
+    // However, if the path is going to be used as a directory it's 248
+    if path_os_str.len() > 260 && windows_char_len(path_os_str) > 260 {
         return false;
     }
     true
