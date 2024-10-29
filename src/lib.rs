@@ -63,6 +63,7 @@ pub fn simplified(path: &Path) -> &Path {
 /// Like `std::fs::canonicalize()`, but on Windows it outputs the most
 /// compatible form of a path instead of UNC.
 #[inline(always)]
+#[doc(alias = "realpath")]
 pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
     let path = path.as_ref();
 
@@ -97,6 +98,7 @@ pub fn is_simplified(path: &Path) -> bool {
     true
 }
 
+#[doc(hidden)]
 pub use self::canonicalize as realpath;
 
 #[cfg(any(windows,test))]
