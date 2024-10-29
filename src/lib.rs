@@ -48,8 +48,9 @@ use std::path::{Path, PathBuf};
 /// Currently paths with unpaired surrogates aren't converted even if they
 /// could be, due to limitations of Rust's `OsStr` API.
 ///
-/// To check if a path remained as UNC, use `path.as_os_str().as_encoded_bytes().starts_with(b"\\\\")`.
+/// To check if a path remained as UNC, use [`is_simplified()`] or `path.as_os_str().as_encoded_bytes().starts_with(b"\\\\")`.
 #[inline]
+#[must_use]
 pub fn simplified(path: &Path) -> &Path {
     if is_safe_to_strip_unc(path) {
         // unfortunately we can't safely strip prefix from a non-Unicode path
@@ -83,6 +84,17 @@ fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
     } else {
         real_path
     })
+}
+
+/// Returns `true` if the path is relative or starts with a disk prefix (like "C:").
+#[cfg_attr(not(windows), allow(unused))]
+#[must_use]
+pub fn is_simplified(path: &Path) -> bool {
+    #[cfg(windows)]
+    if let Some(Component::Prefix(prefix)) = path.components().next() {
+        return matches!(prefix.kind(), Prefix::Disk(..))
+    }
+    true
 }
 
 pub use self::canonicalize as realpath;
