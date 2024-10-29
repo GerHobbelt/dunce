@@ -52,12 +52,7 @@ use std::path::{Path, PathBuf};
 #[inline]
 #[must_use]
 pub fn simplified(path: &Path) -> &Path {
-    if is_safe_to_strip_unc(path) {
-        // unfortunately we can't safely strip prefix from a non-Unicode path
-        path.to_str().and_then(|s| s.get(4..)).map_or(path, Path::new)
-    } else {
-        path
-    }
+    try_simplified(path).unwrap_or(path)
 }
 
 /// Like `std::fs::canonicalize()`, but on Windows it outputs the most
@@ -80,11 +75,7 @@ pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
 #[cfg(windows)]
 fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
     let real_path = fs::canonicalize(path)?;
-    Ok(if is_safe_to_strip_unc(&real_path) {
-        real_path.to_str().and_then(|s| s.get(4..)).map(PathBuf::from).unwrap_or(real_path)
-    } else {
-        real_path
-    })
+    Ok(try_simplified(&real_path).map(PathBuf::from).unwrap_or(real_path))
 }
 
 /// Returns `true` if the path is relative or starts with a disk prefix (like "C:").
@@ -149,50 +140,47 @@ fn is_reserved<P: AsRef<OsStr>>(file_name: P) -> bool {
     if let Some(name) = Path::new(&file_name).file_stem().and_then(|s| s.to_str()) {
         // "con.. .txt" is "CON" for DOS
         let trimmed = right_trim(name);
-        if trimmed.len() <= 4 && RESERVED_NAMES.into_iter().any(|name| trimmed.eq_ignore_ascii_case(name)) {
-            return true;
-        }
+        return trimmed.len() <= 4 && RESERVED_NAMES.into_iter().any(|name| trimmed.eq_ignore_ascii_case(name));
     }
     false
 }
 
 #[cfg(not(windows))]
 #[inline]
-const fn is_safe_to_strip_unc(_path: &Path) -> bool {
-    false
+const fn try_simplified(_path: &Path) -> Option<&Path> {
+    None
 }
 
 #[cfg(windows)]
-fn is_safe_to_strip_unc(path: &Path) -> bool {
+fn try_simplified(path: &Path) -> Option<&Path> {
     let mut components = path.components();
     match components.next() {
         Some(Component::Prefix(p)) => match p.kind() {
             Prefix::VerbatimDisk(..) => {},
-            _ => return false, // Other kinds of UNC paths
+            _ => return None, // Other kinds of UNC paths
         },
-        _ => return false, // relative or empty
+        _ => return None, // relative or empty
     }
+    let stripped_path = components.as_path();
 
     for component in components {
         match component {
             Component::RootDir => {},
             Component::Normal(file_name) => {
-                // it doesn't allocate in most cases,
-                // and checks are interested only in the ASCII subset, so lossy is fine
                 if !is_valid_filename(file_name) || is_reserved(file_name) {
-                    return false;
+                    return None;
                 }
             }
-            _ => return false, // UNC paths take things like ".." literally
+            _ => return None, // UNC paths take things like ".." literally
         };
     }
 
-    let path_os_str = path.as_os_str();
+    let path_os_str = stripped_path.as_os_str();
     // However, if the path is going to be used as a directory it's 248
     if path_os_str.len() > 260 && windows_char_len(path_os_str) > 260 {
-        return false;
+        return None;
     }
-    true
+    Some(stripped_path)
 }
 
 /// Trim '.' and ' '
@@ -271,9 +259,9 @@ fn valid() {
     assert!(!is_valid_filename("?x".as_ref()));
     assert!(!is_valid_filename("a\0a".as_ref()));
     assert!(!is_valid_filename("\x1f".as_ref()));
-    assert!(!is_valid_filename(::std::iter::repeat("a").take(257).collect::<String>().as_ref()));
+    assert!(!is_valid_filename("a".repeat(257).as_ref()));
 
-    assert!(is_valid_filename(::std::iter::repeat("®").take(254).collect::<String>().as_ref()));
+    assert!(is_valid_filename("®".repeat(254).as_ref()));
     assert!(is_valid_filename("ファイル".as_ref()));
     assert!(is_valid_filename("a".as_ref()));
     assert!(is_valid_filename("a.aaaaaaaa".as_ref()));
@@ -300,20 +288,20 @@ fn strip() {
 #[test]
 #[cfg(windows)]
 fn safe() {
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\bar")));
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\Z:\foo\bar\")));
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\Z:\😀\🎃\")));
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\c:\foo")));
+    assert!(try_simplified(Path::new(r"\\?\C:\foo\bar")).is_some());
+    assert!(try_simplified(Path::new(r"\\?\Z:\foo\bar\")).is_some());
+    assert!(try_simplified(Path::new(r"\\?\Z:\😀\🎃\")).is_some());
+    assert!(try_simplified(Path::new(r"\\?\c:\foo")).is_some());
 
     let long = ::std::iter::repeat("®").take(160).collect::<String>();
-    assert!(is_safe_to_strip_unc(Path::new(&format!(r"\\?\c:\{}", long))));
-    assert!(!is_safe_to_strip_unc(Path::new(&format!(r"\\?\c:\{}\{}", long, long))));
+    assert!(try_simplified(Path::new(&format!(r"\\?\c:\{}", long))).is_some());
+    assert!(!try_simplified(Path::new(&format!(r"\\?\c:\{}\{}", long, long))).is_some());
 
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\.\bar")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\..\bar")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c\foo")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c\foo/bar")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c:foo")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\cc:foo")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c:foo\bar")));
+    assert!(!try_simplified(Path::new(r"\\?\C:\foo\.\bar")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\C:\foo\..\bar")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c\foo")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c\foo/bar")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c:foo")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\cc:foo")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c:foo\bar")).is_some());
 }
