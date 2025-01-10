@@ -137,9 +137,9 @@ const RESERVED_NAMES: [&str; 22] = [
 fn is_reserved<P: AsRef<OsStr>>(file_name: P) -> bool {
     // con.txt is reserved too
     // all reserved DOS names have ASCII-compatible stem
-    if let Some(name) = Path::new(&file_name).file_stem().and_then(|s| s.to_str()) {
+    if let Some(name) = Path::new(&file_name).file_stem().and_then(|s| s.to_str()?.split('.').next()) {
         // "con.. .txt" is "CON" for DOS
-        let trimmed = right_trim(name);
+        let trimmed = name.trim_end_matches(' ');
         return trimmed.len() <= 4 && RESERVED_NAMES.into_iter().any(|name| trimmed.eq_ignore_ascii_case(name));
     }
     false
@@ -183,27 +183,6 @@ fn try_simplified(path: &Path) -> Option<&Path> {
     Some(stripped_path)
 }
 
-/// Trim '.' and ' '
-#[cfg(any(windows, test))]
-fn right_trim(s: &str) -> &str {
-    s.trim_end_matches([' ','.'])
-}
-
-#[test]
-fn trim_test() {
-    assert_eq!("a", right_trim("a."));
-    assert_eq!("ą", right_trim("ą."));
-    assert_eq!("a", right_trim("a "));
-    assert_eq!("ąą", right_trim("ąą "));
-    assert_eq!("a", right_trim("a. . . ....   "));
-    assert_eq!("a. . . ..ź", right_trim("a. . . ..ź..   "));
-    assert_eq!(" b", right_trim(" b"));
-    assert_eq!(" べ", right_trim(" べ"));
-    assert_eq!("c. c", right_trim("c. c."));
-    assert_eq!("。", right_trim("。"));
-    assert_eq!("", right_trim(""));
-}
-
 #[test]
 fn reserved() {
     assert!(is_reserved("CON"));
@@ -219,6 +198,7 @@ fn reserved() {
     assert!(is_reserved("con . .txt"));
     assert!(is_reserved("con.....txt"));
     assert!(is_reserved("PrN....."));
+    assert!(is_reserved("nul.tar.gz"));
 
     assert!(!is_reserved(" PrN....."));
     assert!(!is_reserved(" CON"));
