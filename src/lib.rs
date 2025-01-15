@@ -68,20 +68,17 @@ use std::path::{Path, PathBuf};
 /// Currently paths with unpaired surrogates aren't converted even if they
 /// could be, due to limitations of Rust's `OsStr` API.
 ///
-/// To check if a path remained as UNC, use `path.as_os_str().as_encoded_bytes().starts_with(b"\\\\")`.
+/// To check if a path remained as UNC, use [`is_simplified()`] or `path.as_os_str().as_encoded_bytes().starts_with(b"\\\\")`.
 #[inline]
+#[must_use]
 pub fn simplified(path: &Path) -> &Path {
-    if is_safe_to_strip_unc(path) {
-        // unfortunately we can't safely strip prefix from a non-Unicode path
-        path.to_str().and_then(|s| s.get(4..)).map_or(path, Path::new)
-    } else {
-        path
-    }
+    try_simplified(path).unwrap_or(path)
 }
 
 /// Like `std::fs::canonicalize()`, but on Windows it outputs the most
 /// compatible form of a path instead of UNC.
 #[inline(always)]
+#[doc(alias = "realpath")]
 pub fn canonicalize<P: AsRef<Path>>(path: P) -> io::Result<PathBuf> {
     let path = path.as_ref();
 
@@ -163,16 +160,20 @@ fn canonicalize_win(path: &Path) -> io::Result<PathBuf> {
     }
 
     let real_path = fs::canonicalize(path)?;
-    Ok(if is_safe_to_strip_unc(&real_path) {
-        real_path
-            .to_str()
-            .and_then(|s| s.get(4..))
-            .map(PathBuf::from)
-            .unwrap_or(real_path)
-    } else {
-        real_path
-    })
+    Ok(try_simplified(&real_path).map(PathBuf::from).unwrap_or(real_path))
 }
+
+/// Returns `true` if the path is relative or starts with a disk prefix (like "C:").
+#[cfg_attr(not(windows), allow(unused))]
+#[must_use]
+pub fn is_simplified(path: &Path) -> bool {
+    #[cfg(windows)]
+    if let Some(Component::Prefix(prefix)) = path.components().next() {
+        return matches!(prefix.kind(), Prefix::Disk(..))
+    }
+    true
+}
+#[doc(hidden)]
 pub use self::canonicalize as realpath;
 
 #[cfg(any(windows, test))]
@@ -226,75 +227,51 @@ const RESERVED_NAMES: [&str; 24] = [
 fn is_reserved<P: AsRef<OsStr>>(file_name: P) -> bool {
     // con.txt is reserved too
     // all reserved DOS names have ASCII-compatible stem
-    if let Some(name) = Path::new(&file_name).file_stem().and_then(|s| s.to_str()) {
+    if let Some(name) = Path::new(&file_name).file_stem().and_then(|s| s.to_str()?.split('.').next()) {
         // "con.. .txt" is "CON" for DOS
-        let trimmed = right_trim(name);
-        if trimmed.len() <= 4 && RESERVED_NAMES.into_iter().any(|name| trimmed.eq_ignore_ascii_case(name)) {
-            return true;
-        }
+        let trimmed = name.trim_end_matches(' ');
+        return trimmed.len() <= 4 && RESERVED_NAMES.into_iter().any(|name| trimmed.eq_ignore_ascii_case(name));
     }
     false
 }
 
 #[cfg(not(windows))]
 #[inline]
-const fn is_safe_to_strip_unc(_path: &Path) -> bool {
-    false
+const fn try_simplified(_path: &Path) -> Option<&Path> {
+    None
 }
 
 #[cfg(windows)]
-fn is_safe_to_strip_unc(path: &Path) -> bool {
+fn try_simplified(path: &Path) -> Option<&Path> {
     eprintln!("is_safe_to_strip_unc({:?})", path);
     let mut components = path.components();
     match components.next() {
         Some(Component::Prefix(p)) => match p.kind() {
             Prefix::VerbatimDisk(..) => {}
-            _ => return false, // Other kinds of UNC paths
+            _ => return None, // Other kinds of UNC paths
         },
-        _ => return false, // relative or empty
+        _ => return None, // relative or empty
     }
+    let stripped_path = components.as_path();
 
     for component in components {
         match component {
             Component::RootDir => {}
             Component::Normal(file_name) => {
-                // it doesn't allocate in most cases,
-                // and checks are interested only in the ASCII subset, so lossy is fine
                 if !is_valid_filename(file_name) || is_reserved(file_name) {
-                    return false;
+                    return None;
                 }
             }
-            _ => return false, // UNC paths take things like ".." literally
+            _ => return None, // UNC paths take things like ".." literally
         };
     }
 
-    let path_os_str = path.as_os_str();
+    let path_os_str = stripped_path.as_os_str();
     // However, if the path is going to be used as a directory it's 248
     if path_os_str.len() > 260 && windows_char_len(path_os_str) > 260 {
-        return false;
+        return None;
     }
-    true
-}
-
-/// Trim '.' and ' '
-#[cfg(any(windows, test))]
-fn right_trim(s: &str) -> &str {
-    s.trim_end_matches([' ','.'])
-}
-
-#[test]
-fn trim_test() {
-    assert_eq!("a", right_trim("a."));
-    assert_eq!("ą", right_trim("ą."));
-    assert_eq!("a", right_trim("a "));
-    assert_eq!("ąą", right_trim("ąą "));
-    assert_eq!("a", right_trim("a. . . ....   "));
-    assert_eq!("a. . . ..ź", right_trim("a. . . ..ź..   "));
-    assert_eq!(" b", right_trim(" b"));
-    assert_eq!(" べ", right_trim(" べ"));
-    assert_eq!("c. c", right_trim("c. c."));
-    assert_eq!("。", right_trim("。"));
-    assert_eq!("", right_trim(""));
+    Some(stripped_path)
 }
 
 #[test]
@@ -312,6 +289,7 @@ fn reserved() {
     assert!(is_reserved("con . .txt"));
     assert!(is_reserved("con.....txt"));
     assert!(is_reserved("PrN....."));
+    assert!(is_reserved("nul.tar.gz"));
 
     assert!(!is_reserved(" PrN....."));
     assert!(!is_reserved(" CON"));
@@ -352,19 +330,9 @@ fn valid() {
     assert!(!is_valid_filename("?x".as_ref()));
     assert!(!is_valid_filename("a\0a".as_ref()));
     assert!(!is_valid_filename("\x1f".as_ref()));
-    assert!(!is_valid_filename(
-        ::std::iter::repeat("a")
-            .take(257)
-            .collect::<String>()
-            .as_ref()
-    ));
+    assert!(!is_valid_filename("a".repeat(257).as_ref()));
 
-    assert!(is_valid_filename(
-        ::std::iter::repeat("®")
-            .take(254)
-            .collect::<String>()
-            .as_ref()
-    ));
+    assert!(is_valid_filename("®".repeat(254).as_ref()));
     assert!(is_valid_filename("ファイル".as_ref()));
     assert!(is_valid_filename("a".as_ref()));
     assert!(is_valid_filename("a.aaaaaaaa".as_ref()));
@@ -407,26 +375,20 @@ fn strip() {
 #[test]
 #[cfg(windows)]
 fn safe() {
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\bar")));
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\Z:\foo\bar\")));
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\Z:\😀\🎃\")));
-    assert!(is_safe_to_strip_unc(Path::new(r"\\?\c:\foo")));
+    assert!(try_simplified(Path::new(r"\\?\C:\foo\bar")).is_some());
+    assert!(try_simplified(Path::new(r"\\?\Z:\foo\bar\")).is_some());
+    assert!(try_simplified(Path::new(r"\\?\Z:\😀\🎃\")).is_some());
+    assert!(try_simplified(Path::new(r"\\?\c:\foo")).is_some());
 
     let long = ::std::iter::repeat("®").take(160).collect::<String>();
-    assert!(is_safe_to_strip_unc(Path::new(&format!(
-        r"\\?\c:\{}",
-        long
-    ))));
-    assert!(!is_safe_to_strip_unc(Path::new(&format!(
-        r"\\?\c:\{}\{}",
-        long, long
-    ))));
+    assert!(try_simplified(Path::new(&format!(r"\\?\c:\{}", long))).is_some());
+    assert!(!try_simplified(Path::new(&format!(r"\\?\c:\{}\{}", long, long))).is_some());
 
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\.\bar")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\C:\foo\..\bar")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c\foo")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c\foo/bar")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c:foo")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\cc:foo")));
-    assert!(!is_safe_to_strip_unc(Path::new(r"\\?\c:foo\bar")));
+    assert!(!try_simplified(Path::new(r"\\?\C:\foo\.\bar")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\C:\foo\..\bar")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c\foo")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c\foo/bar")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c:foo")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\cc:foo")).is_some());
+    assert!(!try_simplified(Path::new(r"\\?\c:foo\bar")).is_some());
 }
